@@ -9,6 +9,7 @@ from sklearn import preprocessing
 import matplotlib.pyplot as plt
 import operator
 
+
 class logisticRegModel(object):
     """
     Desc: 逻辑回归模型
@@ -147,6 +148,7 @@ def logisticTrainModel(eta, lam, mini_batch_size, epochs):
                                      epochs)
     training_cost, training_accuracy, evaluation_cost, evaluation_accuracy = logisticModel.SGD(
         training_data, validation_data)
+    """
     plt.figure(111)
     plt.plot([i for i in range(epochs)], training_cost, label="training cost")
     plt.plot(
@@ -166,72 +168,85 @@ def logisticTrainModel(eta, lam, mini_batch_size, epochs):
     plt.ylabel("cost")
     plt.legend(loc="best")
     plt.show()
+    """
 
 
 def logisticTrainModelAccelerated(eta, lam, mini_batch_size, epochs):
+    """
+    Desc: logistic模型加速版使用向量化操作
+    Params: 
+        eat: 学习率
+        lam：正则化参数
+        mini_batch_size：批量大小
+        epochs: 迭代次数
+    Return: 
+        weights: 模型参数
+    """
     tr_d, va_d, te_d = loadData()
     trainData, trainLabel = tr_d
-    trainLabel = np.reshape(trainLabel,(trainLabel.shape[0], 1))
+    m, n = trainData.shape
+    trainData = np.insert(trainData, 0, values = np.ones(m), axis = 1)
+    trainLabel = np.reshape(trainLabel, (trainLabel.shape[0], 1))
     vaData, vaLabel = va_d
+    vaData = np.insert(vaData, 0, values = np.ones(m), axis=1)
     vaLabel = np.reshape(vaLabel, (vaLabel.shape[0], 1))
     testData, testLabel = te_d
+    testData = np.insert(testData, 0, values = np.ones(m), axis = 1)
     testLabel = np.reshape(testLabel, (testLabel.shape[0], 1))
     enc = preprocessing.OneHotEncoder()
     enc.fit(trainLabel)
     trainLabel = enc.transform(trainLabel).toarray()
     enc.fit(testLabel)
     testLabel = enc.transform(testLabel).toarray()
-    n = trainData.shape[0]
+    enc.fit(vaLabel)
+    vaLabel = enc.transform(vaLabel).toarray()
     training_cost, training_accuracy, test_cost, test_accuracy = [], [], [], []
-    weights = np.random.randn(784, 10)
-
+    weights = np.random.randn(784, 10)  #初始化模型参数
     for i in range(epochs):
         random.shuffle(trainData)
         mini_batches = [
             trainData[k:k + mini_batch_size]
-            for k in np.arange(0, n, mini_batch_size)
+            for k in np.arange(0, m, mini_batch_size)
         ]
         labels = [
             trainLabel[k:k + mini_batch_size]
-            for k in np.arange(0, n, mini_batch_size)
+            for k in np.arange(0, m, mini_batch_size)
         ]
         for mini_batch, label in zip(mini_batches, labels):
             #批量更新梯度
             yhat = np.exp(np.dot(mini_batch, weights))
             sumy = np.sum(yhat, axis=1)
             yhat = yhat / np.reshape(sumy, (mini_batch.shape[0], 1))
-            err = yhat - label
+            err = (yhat - label) * label # 梯度：1/m*sum_i^{m}(p(yi=k|xi,w)-yi)*1(yi=k)
             weights = weights - 1.0 * eta / mini_batch.shape[0] * np.dot(
-                err.T, mini_batch).T - 1.0 * eta * (lam / n) * weights
-            # 计算损失
-            yhat = np.exp(np.dot(trainData, weights))
-            sumy = np.sum(yhat, axis=1)
-            yhat = yhat / np.reshape(sumy, (trainData.shape[0], 1))
-            results = [(np.argmax(y), np.argmax(label))
-                       for (y, label) in zip(yhat, trainLabel)]
-            accuracy = np.sum([int(x == y)
-                               for (x, y) in results]) / float(n) * 100.0
-            training_accuracy.append(accuracy)
-            #cost = -1.0 * np.sum(np.log(yhat) * trainLabel) +　lam * np.linalg.norm(weights)
-            cost = -1.0 * np.sum(
-                np.log(yhat) * trainLabel) + lam * np.linalg.norm(weights)
-            cost = 1.0 * cost / trainData.shape[0]
-            training_cost.append(cost)
-            # 计算测试损失
-
-            yhat = np.exp(np.dot(testData, weights))
-            sumy = np.sum(yhat, axis=1)
-            yhat = yhat / np.reshape(sumy, (testData.shape[0], 1))
-            results = [(np.argmax(y), np.argmax(label))
-                       for (y, label) in zip(yhat, testLabel)]
-            accuracy = np.sum([int(x == y) for (
-                x, y) in results]) / float(testData.shape[0]) * 100.0
-            test_accuracy.append(accuracy)
-            # cost = -1.0 * np.sum (np.log(yhat) * testLabel) +　lam * np.linalg.norm(weights)
-            cost = -1.0 * np.sum(
-                np.log(yhat) * testLabel) + lam * np.linalg.norm(weights)
-            cost = 1.0 * cost / testData.shape[0]
-            test_cost.append(cost)
+                err.T, mini_batch).T - 1.0 * eta * lam * weights
+        # 计算损失
+        yhat = np.exp(np.dot(trainData, weights))
+        sumy = np.sum(yhat, axis=1)
+        yhat = yhat / np.reshape(sumy, (m, 1))
+        results = [(np.argmax(y), np.argmax(label))
+                   for (y, label) in zip(yhat, trainLabel)]
+        accuracy = np.sum([int(x == y)
+                           for (x, y) in results]) / float(m) * 100.0
+        training_accuracy.append(accuracy)
+        #cost = -1.0 * np.sum(np.log(yhat) * trainLabel) +　lam * np.linalg.norm(weights)
+        cost = -1.0 / trainData.shape[0] * np.sum(
+            np.log(yhat) * trainLabel) + 0.5 * lam * np.linalg.norm(weights)**2
+        training_cost.append(cost)
+        # 计算测试损失
+        yhat = np.exp(np.dot(testData, weights))
+        sumy = np.sum(yhat, axis=1)
+        yhat = yhat / np.reshape(sumy, (testData.shape[0], 1))
+        results = [(np.argmax(y), np.argmax(label))
+                   for (y, label) in zip(yhat, testLabel)]
+        accuracy = np.sum([int(x == y) for (
+            x, y) in results]) / float(testData.shape[0]) * 100.0
+        test_accuracy.append(accuracy)
+        # cost = -1.0 * np.sum (np.log(yhat) * testLabel) +　lam * np.linalg.norm(weights)
+        cost = -1.0 / testData.shape[0] * np.sum(
+            np.log(yhat) * testLabel) + 0.5 * lam * np.linalg.norm(weights)**2
+        test_cost.append(cost)
+    """
     plt.figure(111)
     plt.plot(
         [i for i in range(epochs)],
@@ -244,6 +259,18 @@ def logisticTrainModelAccelerated(eta, lam, mini_batch_size, epochs):
     plt.xlabel("Epoch")
     plt.legend(loc="best")
     plt.show()
+    plt.figure(222)
+    plt.plot(
+        [i for i in range(epochs)],
+        training_cost,
+        label="Cost on the training data")
+    plt.plot(
+        [i for i in range(epochs)], test_cost, label="Cost on the test data")
+    plt.xlabel("Epoch")
+    plt.legend(loc="best")
+    plt.show()
+    """
+    return weights, training_cost, training_accuracy, test_cost, test_accuracy
 
 
 class knnModel(object):
@@ -256,6 +283,7 @@ class knnModel(object):
         Desc: 初始化k近邻模型
         """
         self.k = k
+
     def knnClassifier(self, trainData, trainLabel, testData):
         """
         Desc: k近邻分类函数
@@ -275,24 +303,34 @@ class knnModel(object):
         for i in range(self.k):
             voteLabel = trainLabel[sortedDisInd[i]]
             classCount[voteLabel] = classCount.get(voteLabel, 0) + 1
-        sortedClassCount = sorted(classCount.items(), key = operator.itemgetter(1), reverse = True)
-        predictLabel = sortedClassCount[0][0] 
-        return  predictLabel  #返回票数最多的标签
+        sortedClassCount = sorted(
+            classCount.items(), key=operator.itemgetter(1), reverse=True)
+        predictLabel = sortedClassCount[0][0]
+        return predictLabel  #返回票数最多的标签
+
+
 def knnModelTrain():
     tr_d, va_d, te_d = loadData()
     trainData, trainLabel = tr_d
     testData, testLabel = te_d
-    accuracy = 0.0 
-    kList = [1, 3, 10, 20]  # 
+    accuracy = 0.0
+    kList = [1, 3, 10, 20]  #
     for k in kList:
         knn = knnModel(k)
         for data, label in zip(testData, testLabel):
             result = knn.knnClassifier(trainData, trainLabel, data)
-            if result == label :
+            if result == label:
                 accuracy += 1.0
-        accuracy = accuracy / testData.shape[0] *100.0
-        print("The k of knn model is {} and accuracy is {}".format(k, accuracy))
-              
+        accuracy = accuracy / testData.shape[0] * 100.0
+        print("The k of knn model is {} and accuracy is {}".format(
+            k, accuracy))
+
+
+"""
+class SVM(object)：
+    __init__(self, )           
+"""
+
 
 def loadData():
     """
@@ -310,6 +348,7 @@ def loadData():
         f, encoding="bytes")
     f.close()
     return (training_data, validation_data, test_data)
+
 
 # test git
 def loadDataWrapper():
@@ -331,7 +370,8 @@ def loadDataWrapper():
     test_inputs = [np.reshape(x, (784, 1)) for x in te_d[0]]
     test_data = zip(test_inputs, te_d[1])
     return (list(training_data), list(validation_data), list(test_data))
-    
+
+
 def vectorized_result(j):
     """
     Desc: 对数据标签做OneHot编码
@@ -344,3 +384,4 @@ def vectorized_result(j):
     e[j] = 1.0
     return e
     #git test
+    #git test2
