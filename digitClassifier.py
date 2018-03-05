@@ -185,13 +185,13 @@ def logisticTrainModelAccelerated(eta, lam, mini_batch_size, epochs):
     tr_d, va_d, te_d = loadData()
     trainData, trainLabel = tr_d
     m, n = trainData.shape
-    trainData = np.insert(trainData, 0, values = np.ones(m), axis = 1)
+    #trainData = np.insert(trainData, 0, values = np.ones(m), axis = 1)
     trainLabel = np.reshape(trainLabel, (trainLabel.shape[0], 1))
     vaData, vaLabel = va_d
-    vaData = np.insert(vaData, 0, values = np.ones(m), axis=1)
+    #vaData = np.insert(vaData, 0, values = np.ones(m), axis=1)
     vaLabel = np.reshape(vaLabel, (vaLabel.shape[0], 1))
     testData, testLabel = te_d
-    testData = np.insert(testData, 0, values = np.ones(m), axis = 1)
+    #testData = np.insert(testData, 0, values = np.ones(m), axis = 1)
     testLabel = np.reshape(testLabel, (testLabel.shape[0], 1))
     enc = preprocessing.OneHotEncoder()
     enc.fit(trainLabel)
@@ -217,7 +217,7 @@ def logisticTrainModelAccelerated(eta, lam, mini_batch_size, epochs):
             yhat = np.exp(np.dot(mini_batch, weights))
             sumy = np.sum(yhat, axis=1)
             yhat = yhat / np.reshape(sumy, (mini_batch.shape[0], 1))
-            err = (yhat - label) * label # 梯度：1/m*sum_i^{m}(p(yi=k|xi,w)-yi)*1(yi=k)
+            err = (yhat - label) # 梯度：1/m*sum_i^{m}(p(yi=k|xi,w)-yi)*1(yi=k)
             weights = weights - 1.0 * eta / mini_batch.shape[0] * np.dot(
                 err.T, mini_batch).T - 1.0 * eta * lam * weights
         # 计算损失
@@ -314,7 +314,7 @@ def knnModelTrain():
     trainData, trainLabel = tr_d
     testData, testLabel = te_d
     accuracy = 0.0
-    kList = [1, 3, 10, 20]  #
+    kList = [1, 3, 5, 10, 20]  #
     for k in kList:
         knn = knnModel(k)
         for data, label in zip(testData, testLabel):
@@ -326,10 +326,87 @@ def knnModelTrain():
             k, accuracy))
 
 
-"""
-class SVM(object)：
-    __init__(self, )           
-"""
+
+class SVM(object):
+    def SMO(self, C, tol, max_passes, trainingData):
+        """
+        Desc: SMO算法求解支持向量机问题 二分类问题 
+        Paramas: 
+            C: 正则化参数
+            tol: 一般求解优化问题的容限值
+            max_passes: 当alpha不发生变化的最大迭代次数
+            trainingData:(x1,y1),...(xm,ym)为训练样本集
+        Returns: 
+            alphas: 拉格朗日乘子
+            b: 截距项
+        """
+        m = len(trainingData)
+        trainData = [ x for x, y in trainingData]
+        trainLabels=[ y for x, y in trainingData]
+        b = 0
+        alphas = [0] * m
+        passes = 0
+        while (passes < max_passes):
+            num_changed_alphas = 0
+            for i in range(m):
+                # calculate Ei
+                xi, yi= trainingData[i]
+                fxi = np.sum([float(alpha)*y*x.T*xi for x, y, alpha in zip(trainData, trainLabels, alphas)])
+                Ei = fxi - float(yi)
+                if ((yi * Ei < -tol and alphas[i]< C) or (yi * Ei > tol and alphas[i] > 0)):
+                    # select j random such that j \= i
+                    j = i
+                    while (j == i):
+                        j = int(random.uniform(0, m))
+                    # calculate Ej
+                    xj, yj = trainData[j]
+                    fxj = np.sum([float(alpha)*y*x.T*xj for x, y, alpha in zip(trainData, trainLabels, alphas)])
+                    Ej = fxj - float(yj)
+                    # save old alpha 
+                    alphaiOld = alphas[i].copy()
+                    alphajOld = alphas[j].copy()
+                    # 
+                    if (yi != yj):
+                        L = max(0, alphas[j] - alphas[i])
+                        H = min(C, C + alphas[j] - alphas[i])
+                    else:
+                        L = max(0, alphas[i] + alphas[j] - C)
+                        H = min(C, alphas[i] + alphas[j])
+                    if (L == H): print("L==H"); continue  # if L==H continue to next i
+                    # calculate eta 
+                    eta = 2 * xi.T * xj -xi.T * xi - xj.T * xj 
+                    if (eta >= 0): print("eta >= 0"); continue
+                    # Compute and clip new value for alphaj
+                    alphas[j] -= yj * (Ei - Ej) / eta
+                    if (alphas[j] > H):
+                        alphas[j] = H
+                    if (alphas[j] < L):
+                        alphas[j] = L
+                    if (abs(alphas[j] - alphajOld) < 10e-5):
+                        print("j not moving enough")
+                        continue
+                    # Determine value for alphai
+                    alphas[i] += yi * yj * (alphajOld - alphas[j])
+                    # Compute b1 and b2 and b
+                    b1 = b - Ei - yi * (alphas[i] - alphaiOld) * \
+                    (xi.T * xi) - yj * (alphas[j] - alphaiOld) * (xi.T * xj)
+                    b2 = b - Ej - yi * (alphas[i] - alphaiOld) * \
+                    (xi.T * xj) - yj * (alphas[j] - alphajOld) * (xj.T * xj)
+                    if (alphas[i] > 0 and alphas[i] < C):
+                        b = b1
+                    if (alphas[j] > 0 and alphas[j] < C):
+                        b = b2
+                    else:
+                        b = 0.5 * (b1 + b2)
+                    num_changed_alphas += 1
+                    print(("iter: {0} i: {1}, pair changed {2}").format(passes, i, num_changed_alphas))
+            if (num_changed_alphas == 0):
+                passes += 1
+            else:
+                passes = 0
+            print(("iteration number: {}").format(passes))
+        return alphas, b
+            
 
 
 def loadData():
@@ -385,3 +462,4 @@ def vectorized_result(j):
     return e
     #git test
     #git test2
+    #git test3
