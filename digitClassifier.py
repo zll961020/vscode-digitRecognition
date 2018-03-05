@@ -1,6 +1,6 @@
-# pylint disable=C0303
+
 """
-手写体数字识别问题及算法比"""
+手写体数字识别问题算法"""
 import gzip
 import random
 import _pickle as cPickle
@@ -8,8 +8,6 @@ import numpy as np
 from sklearn import preprocessing
 import matplotlib.pyplot as plt
 import operator
-
-
 class logisticRegModel(object):
     """
     Desc: 逻辑回归模型
@@ -35,12 +33,42 @@ class logisticRegModel(object):
 
     def h(self, x):
         """
-        Desc: 假设函数
+        Desc: 假设函数  注意处理exp上溢出问题每一行需要减去改行的最大值！！！
+        Params: 
+            x: 输入
+        Return: 
+            yhat: 估计值
         """
-        x = np.mat(x)
-        return np.exp(self.weights.T * x) / float(
-            np.sum(np.exp(self.weights.T * x)))
-
+        theta = np.dot(self.weights.T, x)  # 10*784  784*m
+        theta -= np.max(theta, axis = 0)  # 求每一列的最大值
+        yhat = np.exp(theta)
+        sumy = np.sum(yhat, axis = 0) 
+        yhat = yhat / sumy
+        return yhat 
+    def calTotalLoss(self, x, y):
+        """
+        Desc: 计算cost
+        Params: 
+            data: 输入样本
+            lam: 正则化参数
+            convert: 标示位 False表示输入样本为训练样本 True表示输入样本为验证集或测试集样本
+        Return: 
+            cost: 定义的损失
+        """
+        theta = np.dot(self.weights.T, x) # 10*m
+        l1 = np.multiply(theta, y)
+        thetaMax = np.max(theta, axis = 0)
+        theta -= thetaMax
+        l2 = np.sum(np.log(np.exp(theta)), axis = 0)
+        loss = np.sum(-l1 + l2 + thetaMax)
+        loss = loss / float(x.shape[1]) + 0.5 * self.lam * np.linalg.norm(self.weights)**2
+        return loss
+    def calAccuracy(self, x, y):  # y 10*m 
+        yhats = self.h(x)
+        results = [(np.argmax(yhat), np.argmax(label)) for yhat, label in zip(yhats.T, y.T)]
+        accuracy = np.sum([int(x==y) for (x, y) in results])
+        accuracy = accuracy / float(y.shape[1]) * 100.0
+        return accuracy 
     def calGradient(self, x, y):
         """
         Desc:计算梯度函数
@@ -51,32 +79,10 @@ class logisticRegModel(object):
         Return: 
             grad: 梯度
         """
-        x = np.mat(x)
-        y = np.mat(y)
         yhat = self.h(x)
-        grad = ((yhat - y) * x.T).T
+        grad = 1.0 / x.shape[1] * ((yhat - y) * x.T).T + self.lam * self.weights
         return grad
-
-    def update_mini_batch(self, mini_batch, n):
-        """
-        Desc: 小批量更新梯度
-        Params: 
-            self:
-            mini_batch: 批量样本
-            eta: 学习率
-            lambda: 正则化系数
-            n: 样本数
-        Return: 
-            None
-        """
-        nabla_w = np.mat(np.zeros((self.weights).shape))
-        for x, y in mini_batch:
-            delta_w = self.calGradient(x, y)
-            nabla_w = nabla_w + delta_w
-        self.weights = self.weights - self.eta * (
-            self.lam / n) * self.weights - self.eta * nabla_w / len(mini_batch)
-
-    def SGD(self, training_data, evaluation_data=None):
+    def SGDTrain(self, tr_d, evaluation_data):
         """
         Desc: 随机小批量梯度下降
         Params: 
@@ -87,191 +93,90 @@ class logisticRegModel(object):
             lam: 正则化参数
             evaluation_data: 验证集或测试集数据
         """
-        if evaluation_data:
-            n_data = len(evaluation_data)
-        n = len(training_data)
-        evaluation_cost, evaluation_accuracy = [], []
-        training_cost, training_accuracy = [], []
-        for j in range(self.epochs):
-            random.shuffle(training_data)
-            mini_batches = [
-                training_data[k:k + self.mini_batch_size]
-                for k in np.arange(0, n, self.mini_batch_size)
+        trainData, trainLabel = tr_d
+        trainData = np.insert(trainData, 0, values = np.ones(trainData.shape[0]), axis = 1)
+        m, n = trainData.shape
+        d_class = len(list(set(trainLabel)))
+        x_train = np.transpose(np.matrix(trainData))
+        y_train = np.zeros((d_class, m))
+        y_train[trainLabel, np.arange(m)] = 1
+        if (evaluation_data):
+            evData, evLabels = evaluation_data
+            evData = np.insert(evData, 0, values = np.ones(evData.shape[0]), axis = 1)
+            evData = np.transpose(np.matrix(evData))
+            evy = np.zeros((d_class, evLabels.shape[0]))
+            evy[evLabels, np.arange(evLabels.shape[0])] = 1
+        Max_iter = self.epochs
+        loss_thresh = 1e-4
+        Loss_old = 0
+        Loss = []; ev_Loss = []; train_acc = []; ev_acc = []
+        stepCnt = 0
+        for iter in range(Max_iter):
+            batchIndex = np.arange(m)
+            np.random.shuffle(batchIndex)
+            batches = [
+                x_train[:, batchIndex[k : k + self.mini_batch_size]] for k in np.arange(0, m, self.mini_batch_size)
             ]
-            for mini_batch in mini_batches:
-                self.update_mini_batch(mini_batch, len(training_data))
-                cost = self.calTotalCost(training_data)
-                training_cost.append(cost)
-                accuracy = self.calAccuracy(training_data)
-                training_accuracy.append(accuracy)
-                cost = self.calTotalCost(evaluation_data, convert=True)
-                evaluation_cost.append(cost)
-                accuracy = self.calAccuracy(evaluation_data, convert=True)
-                evaluation_accuracy.append(accuracy)
-            print(("Epoch {} training complete").format(j))
-        return training_cost, training_accuracy, evaluation_cost, evaluation_accuracy
+            labels =[
+                y_train[:, batchIndex[k : k + self.mini_batch_size]] for k in np.arange(0, m, self.mini_batch_size)
+            ]
+            for batch, label in zip(batches, labels):
+                # 计算梯度
+                grad = self.calGradient(batch, label)
+                self.weights = self.weights - 1.0 / batch.shape[1] * self.eta * grad  
+            #计算损失
+            loss = self.calTotalLoss(x_train, y_train)
+            Loss.append(loss)
+            acc = self.calAccuracy(x_train, y_train)
+            train_acc.append(acc)
+            if (evaluation_data):
+                loss = self.calTotalLoss(evData, evy)
+                ev_Loss.append(loss)
+                acc = self.calAccuracy(evData, evy)
+                ev_acc.append(acc)
+            if (abs(Loss_old - Loss[-1]) < loss_thresh): break
+            Loss_old = Loss[-1]
+            stepCnt += 1
+            if stepCnt == 10:
+                stepCnt = 0
+                self.eta *= 0.8
+                #lr*=0.8
+            print(("Epoch: {} completed").format(iter))
+        return self.weights, Loss, ev_Loss, train_acc, ev_acc
+    def test(self, te_d):
+        testData, testLabel = te_d
+        n = testData.shape[0]
+        testData = np.insert(testData, 0, values = np.ones(n), axis = 1)
+        x_test = np.transpose(np.matrix(testData))
+        y_test = np.array(testLabel)
+        mu =  self.h(x_test)    # 10*m
+        results = [(np.argmax(yhat), label) for yhat, label in zip(mu.T, testLabel)]
+        accuracy = np.sum([int(x==y) for (x,y) in results])
+        accuracy = accuracy / float(n) * 100.0 
+        print(("Accuracy for test set is {}").format(accuracy))
+        return accuracy 
 
-    def calTotalCost(self, data, convert=False):
-        """
-        Desc: 计算cost
-        Params: 
-            data: 输入样本
-            lam: 正则化参数
-            convert: 标示位 False表示输入样本为训练样本 True表示输入样本为验证集或测试集样本
-        Return: 
-            cost: 定义的损失
-        """
-        cost = 0.0
-        for x, y in data:
-            x = np.mat(x)
-            if convert:
-                y = vectorized_result(y)
-            y = np.mat(y)
-            cost += np.multiply(y, np.log(self.h(x))) + 0.5 * self.lam * (
-                np.linalg.norm(self.weights)**2)
-        cost = cost / float(len(data))
-        return cost
-
-    def calAccuracy(self, data, convert=False):
-        if convert:
-            results = [(np.argmax(self.h(x)), y)
-                       for (x, y) in data]  # np.argmax返回的是最大值所在的下标
-        else:
-            results = [(np.argmax(self.h(x)), np.argmax(y)) for (x, y) in data]
-        return np.sum([int(x == y) for (x, y) in results])
-
-
-def logisticTrainModel(eta, lam, mini_batch_size, epochs):
-    training_data, validation_data, test_data = loadDataWrapper()
-    weights = np.mat(np.random.randn(784, 10))
-    logisticModel = logisticRegModel(weights, eta, lam, mini_batch_size,
-                                     epochs)
-    training_cost, training_accuracy, evaluation_cost, evaluation_accuracy = logisticModel.SGD(
-        training_data, validation_data)
-    """
-    plt.figure(111)
-    plt.plot([i for i in range(epochs)], training_cost, label="training cost")
-    plt.plot(
-        [i for i in range(epochs)], evaluation_cost, label="evaluation_cost")
-    plt.xlabel("iterate times")
-    plt.ylabel("cost")
-    plt.legend(loc="best")
-    plt.show()
-    plt.figure(222)
-    plt.plot(
-        [i for i in range(epochs)], training_accuracy, label="training cost")
-    plt.plot(
-        [i for i in range(epochs)],
-        evaluation_accuracy,
-        label="evaluation_cost")
-    plt.xlabel("iterate times")
-    plt.ylabel("cost")
-    plt.legend(loc="best")
-    plt.show()
-    """
-
-
-def logisticTrainModelAccelerated(eta, lam, mini_batch_size, epochs):
-    """
-    Desc: logistic模型加速版使用向量化操作
-    Params: 
-        eat: 学习率
-        lam：正则化参数
-        mini_batch_size：批量大小
-        epochs: 迭代次数
-    Return: 
-        weights: 模型参数
-    """
+def logisticMainFun():
     tr_d, va_d, te_d = loadData()
-    trainData, trainLabel = tr_d
-    m, n = trainData.shape
-    #trainData = np.insert(trainData, 0, values = np.ones(m), axis = 1)
-    trainLabel = np.reshape(trainLabel, (trainLabel.shape[0], 1))
-    vaData, vaLabel = va_d
-    #vaData = np.insert(vaData, 0, values = np.ones(m), axis=1)
-    vaLabel = np.reshape(vaLabel, (vaLabel.shape[0], 1))
-    testData, testLabel = te_d
-    #testData = np.insert(testData, 0, values = np.ones(m), axis = 1)
-    testLabel = np.reshape(testLabel, (testLabel.shape[0], 1))
-    enc = preprocessing.OneHotEncoder()
-    enc.fit(trainLabel)
-    trainLabel = enc.transform(trainLabel).toarray()
-    enc.fit(testLabel)
-    testLabel = enc.transform(testLabel).toarray()
-    enc.fit(vaLabel)
-    vaLabel = enc.transform(vaLabel).toarray()
-    training_cost, training_accuracy, test_cost, test_accuracy = [], [], [], []
-    weights = np.random.randn(784, 10)  #初始化模型参数
-    for i in range(epochs):
-        random.shuffle(trainData)
-        mini_batches = [
-            trainData[k:k + mini_batch_size]
-            for k in np.arange(0, m, mini_batch_size)
-        ]
-        labels = [
-            trainLabel[k:k + mini_batch_size]
-            for k in np.arange(0, m, mini_batch_size)
-        ]
-        for mini_batch, label in zip(mini_batches, labels):
-            #批量更新梯度
-            yhat = np.exp(np.dot(mini_batch, weights))
-            sumy = np.sum(yhat, axis=1)
-            yhat = yhat / np.reshape(sumy, (mini_batch.shape[0], 1))
-            err = (yhat - label) # 梯度：1/m*sum_i^{m}(p(yi=k|xi,w)-yi)*1(yi=k)
-            weights = weights - 1.0 * eta / mini_batch.shape[0] * np.dot(
-                err.T, mini_batch).T - 1.0 * eta * lam * weights
-        # 计算损失
-        yhat = np.exp(np.dot(trainData, weights))
-        sumy = np.sum(yhat, axis=1)
-        yhat = yhat / np.reshape(sumy, (m, 1))
-        results = [(np.argmax(y), np.argmax(label))
-                   for (y, label) in zip(yhat, trainLabel)]
-        accuracy = np.sum([int(x == y)
-                           for (x, y) in results]) / float(m) * 100.0
-        training_accuracy.append(accuracy)
-        #cost = -1.0 * np.sum(np.log(yhat) * trainLabel) +　lam * np.linalg.norm(weights)
-        cost = -1.0 / trainData.shape[0] * np.sum(
-            np.log(yhat) * trainLabel) + 0.5 * lam * np.linalg.norm(weights)**2
-        training_cost.append(cost)
-        # 计算测试损失
-        yhat = np.exp(np.dot(testData, weights))
-        sumy = np.sum(yhat, axis=1)
-        yhat = yhat / np.reshape(sumy, (testData.shape[0], 1))
-        results = [(np.argmax(y), np.argmax(label))
-                   for (y, label) in zip(yhat, testLabel)]
-        accuracy = np.sum([int(x == y) for (
-            x, y) in results]) / float(testData.shape[0]) * 100.0
-        test_accuracy.append(accuracy)
-        # cost = -1.0 * np.sum (np.log(yhat) * testLabel) +　lam * np.linalg.norm(weights)
-        cost = -1.0 / testData.shape[0] * np.sum(
-            np.log(yhat) * testLabel) + 0.5 * lam * np.linalg.norm(weights)**2
-        test_cost.append(cost)
-    """
+    eta = 0.5
+    lam = 0.0
+    mini_batch_size = 10000
+    epochs = 200
+    weights = np.zeros((785, 10))
+    model = logisticRegModel(weights, eta, lam, mini_batch_size, epochs)
+    weights, Loss, ev_Loss, train_acc, ev_acc = model.SGDTrain(tr_d, te_d) 
     plt.figure(111)
-    plt.plot(
-        [i for i in range(epochs)],
-        training_accuracy,
-        label="Accuracy on the training data")
-    plt.plot(
-        [i for i in range(epochs)],
-        test_accuracy,
-        label="Accuracy on the test data")
+    plt.plot(Loss, label = "Loss on training data")
+    plt.plot(ev_Loss, label = "Loss on test data")
     plt.xlabel("Epoch")
-    plt.legend(loc="best")
+    plt.legend(loc = "best")
     plt.show()
     plt.figure(222)
-    plt.plot(
-        [i for i in range(epochs)],
-        training_cost,
-        label="Cost on the training data")
-    plt.plot(
-        [i for i in range(epochs)], test_cost, label="Cost on the test data")
+    plt.plot(train_acc, label = "Accuracy on training data")
+    plt.plot(ev_acc, label = "Accuracy on test data")
     plt.xlabel("Epoch")
-    plt.legend(loc="best")
+    plt.legend(loc = "best")
     plt.show()
-    """
-    return weights, training_cost, training_accuracy, test_cost, test_accuracy
-
 
 class knnModel(object):
     """
@@ -333,7 +238,7 @@ class SVM(object):
         Desc: SMO算法求解支持向量机问题 二分类问题 
         Paramas: 
             C: 正则化参数
-            tol: 一般求解优化问题的容限值
+            tol: 一般求解优化问题的容限值dat
             max_passes: 当alpha不发生变化的最大迭代次数
             trainingData:(x1,y1),...(xm,ym)为训练样本集
         Returns: 
@@ -406,9 +311,16 @@ class SVM(object):
                 passes = 0
             print(("iteration number: {}").format(passes))
         return alphas, b
-            
+       
 
-
+def loadDataSet(filename):
+    dataMat=[]; labelMat=[]
+    fr = open(filename)
+    for line in fr.readlines():
+        lineArr = line.strip().split('\t')
+        dataMat.append([float(lineArr[0]), float(lineArr[1])])
+        labelMat.append(float(lineArr[2]))
+    return dataMat, labelMat
 def loadData():
     """
     Desc: 加载数据集函数
