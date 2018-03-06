@@ -8,6 +8,76 @@ import numpy as np
 from sklearn import preprocessing
 import matplotlib.pyplot as plt
 import operator
+def loadDataSet(filename):
+    """
+    Desc: svm测试数据集加载函数
+
+    """
+    dataMat=[]; labelMat=[]
+    fr = open(filename)
+    for line in fr.readlines():
+        lineArr = line.strip().split('\t')
+        dataMat.append([float(lineArr[0]), float(lineArr[1])])
+        labelMat.append(float(lineArr[2]))
+    return dataMat, labelMat
+def loadData():
+    """
+    Desc: 加载数据集函数
+    Params: 
+        无
+    Return: 
+        training_data: 训练样本 tuple(x,y) of ndarray类型
+        validation_data: 验证集样本 tuple of ndarray类型
+        test_data: 测试集样本 tuple of ndarray类型
+    """
+    f = gzip.open(
+        r"E:\machinelearninginaction\digitRecognition\data\mnist.pkl.gz", "rb")
+    training_data, validation_data, test_data = cPickle.load(
+        f, encoding="bytes")
+    f.close()
+    return (training_data, validation_data, test_data)
+
+
+# test git
+def loadDataWrapper():
+    """
+    Desc: 加载数据装饰器函数
+    Params: 
+        None
+    Return: 
+        同loadData
+    """
+    tr_d, va_d, te_d = loadData()
+    training_inputs = [np.reshape(x, (784, 1))
+                       for x in tr_d[0]]  # 将tuple转成list
+    traing_results = [vectorized_result(y)
+                      for y in tr_d[1]]  #将tuple中的标签转成list，训练集需要做oneHot编码
+    training_data = zip(training_inputs, traing_results)
+    validation_inputs = [np.reshape(x, (784, 1)) for x in va_d[0]]
+    validation_data = zip(validation_inputs, va_d[1])
+    test_inputs = [np.reshape(x, (784, 1)) for x in te_d[0]]
+    test_data = zip(test_inputs, te_d[1])
+    return (list(training_data), list(validation_data), list(test_data))
+
+def runTime(func):
+    def wrapper(*args, **kwargs):
+        import time
+        t1 = time.time()
+        func(*args, **kwargs)
+        t2 = time.time()
+        print(("{} run time: {}  s").format(func.__name__, t2 - t1))
+    return wrapper
+def vectorized_result(j):
+    """
+    Desc: 对标签进行OneHot编码
+    Params: 
+        j: 输入样本标签
+    Return:
+        e: 编码后向量类别为k则向量下标为k的位置是1
+    """
+    e = np.zeros((10, 1))
+    e[j] = 1.0
+    return e
 class logisticRegModel(object):
     """
     Desc: 逻辑回归模型
@@ -42,8 +112,7 @@ class logisticRegModel(object):
         theta = np.dot(self.weights.T, x)  # 10*784  784*m
         theta -= np.max(theta, axis = 0)  # 求每一列的最大值
         yhat = np.exp(theta)
-        sumy = np.sum(yhat, axis = 0) 
-        yhat = yhat / sumy
+        yhat = yhat / np.sum(yhat, axis = 0) 
         return yhat 
     def calTotalLoss(self, x, y):
         """
@@ -56,10 +125,10 @@ class logisticRegModel(object):
             cost: 定义的损失
         """
         theta = np.dot(self.weights.T, x) # 10*m
-        l1 = np.multiply(theta, y)
+        l1 = np.multiply(y, theta)
         thetaMax = np.max(theta, axis = 0)
         theta -= thetaMax
-        l2 = np.sum(np.log(np.exp(theta)), axis = 0)
+        l2 = np.log(np.sum(np.exp(theta), axis = 0))
         loss = np.sum(-l1 + l2 + thetaMax)
         loss = loss / float(x.shape[1]) + 0.5 * self.lam * np.linalg.norm(self.weights)**2
         return loss
@@ -123,7 +192,7 @@ class logisticRegModel(object):
             for batch, label in zip(batches, labels):
                 # 计算梯度
                 grad = self.calGradient(batch, label)
-                self.weights = self.weights - 1.0 / batch.shape[1] * self.eta * grad  
+                self.weights = self.weights - self.eta * grad  
             #计算损失
             loss = self.calTotalLoss(x_train, y_train)
             Loss.append(loss)
@@ -139,32 +208,36 @@ class logisticRegModel(object):
             stepCnt += 1
             if stepCnt == 10:
                 stepCnt = 0
-                self.eta *= 0.8
+                #self.eta *= 0.8
                 #lr*=0.8
             print(("Epoch: {} completed").format(iter))
-        return self.weights, Loss, ev_Loss, train_acc, ev_acc
-    def test(self, te_d):
-        testData, testLabel = te_d
-        n = testData.shape[0]
-        testData = np.insert(testData, 0, values = np.ones(n), axis = 1)
-        x_test = np.transpose(np.matrix(testData))
-        y_test = np.array(testLabel)
-        mu =  self.h(x_test)    # 10*m
-        results = [(np.argmax(yhat), label) for yhat, label in zip(mu.T, testLabel)]
-        accuracy = np.sum([int(x==y) for (x,y) in results])
-        accuracy = accuracy / float(n) * 100.0 
-        print(("Accuracy for test set is {}").format(accuracy))
-        return accuracy 
-
-def logisticMainFun():
+        w = self.weights
+        return w, Loss, ev_Loss, train_acc, ev_acc
+def test(weights, te_d):
+    testData, testLabel = te_d
+    n = testData.shape[0]
+    testData = np.insert(testData, 0, values = np.ones(n), axis = 1)
+    x_test = np.transpose(np.matrix(testData))
+    y_test = np.array(testLabel)
+    theta = np.dot(weights.T, x_test)  # 10*784  784*m
+    theta -= np.max(theta, axis = 0)  # 求每一列的最大值
+    mu = np.exp(theta)
+    mu = mu / np.sum(mu, axis = 0)     # 10*m
+    results = [(np.argmax(yhat), label) for yhat, label in zip(mu.T, testLabel)]
+    accuracy = np.sum([int(x==y) for (x,y) in results])
+    accuracy = accuracy / float(n) * 100.0 
+    print(("Accuracy for test set is {}").format(accuracy))
+    return accuracy 
+@runTime
+def logisticMainFun(eta, lam, mini_batch_size, epochs):
     tr_d, va_d, te_d = loadData()
-    eta = 0.5
-    lam = 0.0
-    mini_batch_size = 10000
-    epochs = 200
-    weights = np.zeros((785, 10))
+   # eta = 0.5
+   # lam = 0.0
+   # mini_batch_size = 10000
+   # epochs = 200
+    weights = np.random.randn((785, 10))
     model = logisticRegModel(weights, eta, lam, mini_batch_size, epochs)
-    weights, Loss, ev_Loss, train_acc, ev_acc = model.SGDTrain(tr_d, te_d) 
+    w, Loss, ev_Loss, train_acc, ev_acc = model.SGDTrain(tr_d, te_d) 
     plt.figure(111)
     plt.plot(Loss, label = "Loss on training data")
     plt.plot(ev_Loss, label = "Loss on test data")
@@ -177,7 +250,7 @@ def logisticMainFun():
     plt.xlabel("Epoch")
     plt.legend(loc = "best")
     plt.show()
-
+    return w
 class knnModel(object):
     """
     Desc: k近邻算法模型
@@ -217,6 +290,8 @@ class knnModel(object):
 def knnModelTrain():
     tr_d, va_d, te_d = loadData()
     trainData, trainLabel = tr_d
+    trainData = trainData[0:10000] #截取10000个样本
+    trainLabel = trainLabel[0:10000] 
     testData, testLabel = te_d
     accuracy = 0.0
     kList = [1, 3, 5, 10, 20]  #
@@ -233,7 +308,14 @@ def knnModelTrain():
 
 
 class SVM(object):
-    def SMO(self, C, tol, max_passes, trainingData):
+    def __init__(self, alphas, b):
+        """
+        Desc: SVM模型初始化函数
+        """
+        self.alphas = alphas
+        self.b = b
+    
+    def SMO(self, C, tol, max_passes, trainData, trainLabels):
         """
         Desc: SMO算法求解支持向量机问题 二分类问题 
         Paramas: 
@@ -245,64 +327,69 @@ class SVM(object):
             alphas: 拉格朗日乘子
             b: 截距项
         """
-        m = len(trainingData)
-        trainData = [ x for x, y in trainingData]
-        trainLabels=[ y for x, y in trainingData]
-        b = 0
-        alphas = [0] * m
+       # m = len(trainingData)
+       # trainData = [ x for x, y in trainingData]
+       # trainLabels=[ y for x, y in trainingData]
+        trainData = np.mat(trainData)
+        trainLabels = np.mat(trainLabels).transpose()
+        m, n = trainData.shape
         passes = 0
         while (passes < max_passes):
             num_changed_alphas = 0
             for i in range(m):
                 # calculate Ei
-                xi, yi= trainingData[i]
-                fxi = np.sum([float(alpha)*y*x.T*xi for x, y, alpha in zip(trainData, trainLabels, alphas)])
-                Ei = fxi - float(yi)
-                if ((yi * Ei < -tol and alphas[i]< C) or (yi * Ei > tol and alphas[i] > 0)):
+                xi = trainData[i,:]  # 第i个输入样本
+                yi = float(trainLabels[i]) # 第i个输入样本的标签
+                fxi = np.sum([float(alpha) * float(y) * x * xi.T for x, y, alpha in zip(trainData, trainLabels, self.alphas)])
+                Ei = fxi - yi
+                if ((yi * Ei < -tol) and (self.alphas[i] < C)) or ((yi * Ei > tol) and (self.alphas[i] > 0)):
                     # select j random such that j \= i
                     j = i
                     while (j == i):
                         j = int(random.uniform(0, m))
                     # calculate Ej
-                    xj, yj = trainData[j]
-                    fxj = np.sum([float(alpha)*y*x.T*xj for x, y, alpha in zip(trainData, trainLabels, alphas)])
-                    Ej = fxj - float(yj)
+                    xj = trainData[j,:]
+                    yj = float(trainLabels[j])
+                    fxj = np.sum([float(alpha) * float(y) * x * xj.T for x, y, alpha in zip(trainData, trainLabels, self.alphas)])
+                    Ej = fxj - yj
                     # save old alpha 
-                    alphaiOld = alphas[i].copy()
-                    alphajOld = alphas[j].copy()
+                    alphaiOld = float(self.alphas[i])
+                    alphajOld = float(self.alphas[j])
                     # 
                     if (yi != yj):
-                        L = max(0, alphas[j] - alphas[i])
-                        H = min(C, C + alphas[j] - alphas[i])
+                        L = max(0, float(self.alphas[j]) - float(self.alphas[i]))
+                        H = min(C, C + float(self.alphas[j]) - float(self.alphas[i]))
                     else:
-                        L = max(0, alphas[i] + alphas[j] - C)
-                        H = min(C, alphas[i] + alphas[j])
+                        L = max(0, float(self.alphas[i]) + float(self.alphas[j]) - C)
+                        H = min(C, float(self.alphas[i]) + float(self.alphas[j]))
                     if (L == H): print("L==H"); continue  # if L==H continue to next i
                     # calculate eta 
-                    eta = 2 * xi.T * xj -xi.T * xi - xj.T * xj 
-                    if (eta >= 0): print("eta >= 0"); continue
+                    eta = 2.0 * xi * xj.T -xi * xi.T - xj * xj.T 
+                    if (eta >= 0): 
+                        print("eta >= 0")
+                        continue
                     # Compute and clip new value for alphaj
-                    alphas[j] -= yj * (Ei - Ej) / eta
-                    if (alphas[j] > H):
-                        alphas[j] = H
-                    if (alphas[j] < L):
-                        alphas[j] = L
-                    if (abs(alphas[j] - alphajOld) < 10e-5):
+                    self.alphas[j] -= float(yj * (Ei - Ej) / eta)
+                    if (self.alphas[j] > H):
+                        self.alphas[j] = H
+                    if (self.alphas[j] < L):
+                        self.alphas[j] = L
+                    if (abs(self.alphas[j] - alphajOld) < 1e-5):
                         print("j not moving enough")
                         continue
                     # Determine value for alphai
-                    alphas[i] += yi * yj * (alphajOld - alphas[j])
+                    self.alphas[i] += yi * yj * (alphajOld - self.alphas[j])
                     # Compute b1 and b2 and b
-                    b1 = b - Ei - yi * (alphas[i] - alphaiOld) * \
-                    (xi.T * xi) - yj * (alphas[j] - alphaiOld) * (xi.T * xj)
-                    b2 = b - Ej - yi * (alphas[i] - alphaiOld) * \
-                    (xi.T * xj) - yj * (alphas[j] - alphajOld) * (xj.T * xj)
-                    if (alphas[i] > 0 and alphas[i] < C):
-                        b = b1
-                    if (alphas[j] > 0 and alphas[j] < C):
-                        b = b2
+                    b1 = self.b - Ei - yi * (self.alphas[i] - alphaiOld) * \
+                    (xi * xi.T) - yj * (self.alphas[j] - alphajOld) * (xi * xj.T)
+                    b2 = self.b - Ej - yi * (self.alphas[i] - alphaiOld) * \
+                    (xi * xj.T) - yj * (self.alphas[j] - alphajOld) * (xj * xj.T)
+                    if (self.alphas[i] > 0 ) and (self.alphas[i] < C):
+                        self.b = b1
+                    elif (self.alphas[j] > 0) and (self.alphas[j] < C):
+                        self.b = b2
                     else:
-                        b = 0.5 * (b1 + b2)
+                        self.b = (b1 + b2)/2.0
                     num_changed_alphas += 1
                     print(("iter: {0} i: {1}, pair changed {2}").format(passes, i, num_changed_alphas))
             if (num_changed_alphas == 0):
@@ -310,68 +397,84 @@ class SVM(object):
             else:
                 passes = 0
             print(("iteration number: {}").format(passes))
-        return alphas, b
-       
+        return self.alphas, self.b
+#@runTime
+def svmTrain(C, tol, max_passes, tr_d):
+    """
+    Desc: 利用one vs the rest 策略训练 N个分类器 保存N个二分类器的模型参数
+    优点相比one vs one策略训练的分类器N*(N-1)/2要少,缺点1、对于两种极端情况即每个分类器
+    结果都输出是或者每个分类器结果都输出不是只能人为处理 2、正负样本不均衡问题 对于每个
+    要训练分类的分类器负样本是其他类别样本总和其数目大于正样本
 
-def loadDataSet(filename):
-    dataMat=[]; labelMat=[]
-    fr = open(filename)
-    for line in fr.readlines():
-        lineArr = line.strip().split('\t')
-        dataMat.append([float(lineArr[0]), float(lineArr[1])])
-        labelMat.append(float(lineArr[2]))
-    return dataMat, labelMat
-def loadData():
     """
-    Desc: 加载数据集函数
-    Params: 
-        无
-    Return: 
-        training_data: 训练样本 tuple(x,y) of ndarray类型
-        validation_data: 验证集样本 tuple of ndarray类型
-        test_data: 测试集样本 tuple of ndarray类型
+    trainData, trainLabels = tr_d
+    total_sample = trainData.shape[0]
+    classes = list(set(trainLabels))
+    cl_n= len(classes)
+    trainSet = {}
+    params = {}
+    for cl in classes:
+        index = [ind for ind, label in enumerate(trainLabels) if label == cl]
+        posSample = trainData[index] # 当前分类的训练样本
+        # 从剩余样本中随机选择和正样本数量差不多的负样本
+        n = len(index)
+        indNeg = set(list(np.arange(0, total_sample))) - set(index) # 除去正样本之后的负样本集合
+        indNeg = random.sample(indNeg, n)
+        negSample = trainData[indNeg]
+        Samples = np.append(posSample, negSample, axis = 0) #按行拼接
+        Labels = np.append(np.ones((n, 1)), -1.0 * np.ones((n, 1)), axis = 0) #按行进行拼接
+        # 训练之前随机打乱训练样本
+        randInd = np.arange(Samples.shape[0])
+        np.random.shuffle(randInd)
+        Samples = Samples[randInd]
+        Labels = Labels[randInd]
+        trainSet[cl] ={zip(Samples, Labels)} #保留每次训练的样本集合用于测试
+        alphas = np.mat(np.zeros((Samples.shape[0], 1)))
+        b = 0
+        svm = SVM(alphas, b)
+        svm.SMO(C, tol, max_passes, Samples, Labels)
+        params[cl] = svm  #保存每个分类器参数  
+    return params, trainSet  # 返回模型参数和训练样本集合
+def svmTest(params, testData, testLabels, trainSet):
     """
-    f = gzip.open(
-        r"E:\machinelearninginaction\digitRecognition\data\mnist.pkl.gz", "rb")
-    training_data, validation_data, test_data = cPickle.load(
-        f, encoding="bytes")
-    f.close()
-    return (training_data, validation_data, test_data)
+    Desc: 测试属于哪一类输出准确率分类超平面的方程为：y=wT+x=sum_i^m alphai*yi*xi 
+    Params:
 
-
-# test git
-def loadDataWrapper():
     """
-    Desc: 加载数据装饰器函数
-    Params: 
-        None
-    Return: 
-        同loadData
-    """
+    accuracy = 0.0 
+    votes = {}    #每个分类器的投票结果 
+    for x, y in zip(testData, testLabels):
+        Distance = []
+        for c in params.keys():
+            alphas, b = params[c].alphas, params[c].b  # 取出模型参数
+            alphai = alphas[alphas > 0]       #支持向量  m * 1
+            ind = [ind for ind, item in enumerate(alphas) if alphas > 0]
+            samples, labels = trainSet[c]  
+            supportSam, supportLab = samples[ind], labels[ind]
+            w = np.sum(np.multiply(alphai, supportLab) * supportSam, axis = 0) # 对某一列求和 w
+            result = np.dot(x, w) + b
+            dis = abs(result) / float(np.linalg.norm(w))  # 保存测试样本到分类超平面的距离
+            Distance.append(dis)
+            if result >= 0:
+                votes[c] = votes.get(c, 0) + 1
+        # 进行决策
+        if votes == {}:   #不属于任何类别  随机判一个类别还是
+            label = random.choice(list(params.keys()))
+        else:
+            sortedVotes = sorted(votes.items(), key = operator.itemgetter(1), reverse=True)
+            if sortedVotes[0][1] != sortedVotes[-1][1]:
+                label = sortedVotes[0][0]
+            else:       #属于所有类别 判断给距离最远的超平面
+                label = list(params.keys())[Distance.index(min(Distance))] 
+        if int(label) == int(y):
+            accuracy += 1.0
+    accuracy = accuracy / float(len(testData.shape[0]))
+    print(("Accuracy is {} ").format(accuracy))
+    return accuracy
+def svmMainFun(C, tol, max_passe):
     tr_d, va_d, te_d = loadData()
-    training_inputs = [np.reshape(x, (784, 1))
-                       for x in tr_d[0]]  # 将tuple转成list
-    traing_results = [vectorized_result(y)
-                      for y in tr_d[1]]  #将tuple中的标签转成list，训练集需要做oneHot编码
-    training_data = zip(training_inputs, traing_results)
-    validation_inputs = [np.reshape(x, (784, 1)) for x in va_d[0]]
-    validation_data = zip(validation_inputs, va_d[1])
-    test_inputs = [np.reshape(x, (784, 1)) for x in te_d[0]]
-    test_data = zip(test_inputs, te_d[1])
-    return (list(training_data), list(validation_data), list(test_data))
+    params, trainSet = svmTrain(C, tol, max_passe, tr_d)
+    testData, testLabels = te_d
+    accuracy = svmTest(params, testData, testLabels, trainSet)
+        
 
-
-def vectorized_result(j):
-    """
-    Desc: 对数据标签做OneHot编码
-    Params: 
-        j: 代表类别标签
-    Return: 
-        e: 10*1向量
-    """
-    e = np.zeros((10, 1))
-    e[j] = 1.0
-    return e
-    #git test
-    #git test2
-    #git test3
